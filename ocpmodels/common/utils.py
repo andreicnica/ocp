@@ -944,12 +944,18 @@ def setup_logging() -> None:
         root.addHandler(handler_err)
 
 
-def compute_neighbors(data, edge_index):
+def compute_neighbors(data, edge_index, ordered_edges: bool = True):
     # Get number of neighbors
     # segment_coo assumes sorted index
-    ones = edge_index[1].new_ones(1).expand_as(edge_index[1])
+
+    edges = edge_index[1]
+    ones = edges.new_ones(1).expand_as(edges)
+
+    if not ordered_edges:
+        edges = torch.sort(edges)[0]
+
     num_neighbors = segment_coo(
-        ones, edge_index[1], dim_size=data.natoms.sum()
+        ones, edges, dim_size=data.natoms.sum()
     )
 
     # Get number of neighbors per image

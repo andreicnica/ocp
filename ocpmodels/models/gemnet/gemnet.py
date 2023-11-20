@@ -129,6 +129,8 @@ class GemNetT(BaseModel):
         activation: str = "swish",
         num_elements: int = 83,
         scale_file: Optional[str] = None,
+        max_allowed_cutoff: int = 6,  # Original limitations was 6!
+        max_neighbors_assert: bool = True,
     ):
         super().__init__()
         self.num_targets = num_targets
@@ -137,10 +139,11 @@ class GemNetT(BaseModel):
         self.extensive = extensive
 
         self.cutoff = cutoff
-        assert self.cutoff <= 6 or otf_graph
+        assert self.cutoff <= max_allowed_cutoff or otf_graph
 
         self.max_neighbors = max_neighbors
-        assert self.max_neighbors == 50 or otf_graph
+        if max_neighbors_assert:
+            assert self.max_neighbors == 50 or otf_graph
 
         self.regress_forces = regress_forces
         self.otf_graph = otf_graph
