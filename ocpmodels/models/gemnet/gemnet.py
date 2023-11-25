@@ -95,6 +95,13 @@ class GemNetT(BaseModel):
             Name of the activation function.
         scale_file: str
             Path to the json file containing the scaling factors.
+
+        h_input: bool
+            If this is True, then the model will use the x attribute as input features (h)!
+            (instead of the atom embeddings computed using AtomEmbedding).
+            This is useful for custom features (e.g. atom emb + time emb)
+            x will have size (emb_size_atom)
+
     """
 
     def __init__(
@@ -129,8 +136,11 @@ class GemNetT(BaseModel):
         activation: str = "swish",
         num_elements: int = 83,
         scale_file: Optional[str] = None,
+        # Custom parameters
         max_allowed_cutoff: int = 6,  # Original limitations was 6!
         max_neighbors_assert: bool = True,
+        h_input: Optional[bool] = False,
+        all_edges: Optional[bool] = True,
     ):
         super().__init__()
         self.num_targets = num_targets
@@ -139,7 +149,9 @@ class GemNetT(BaseModel):
         self.extensive = extensive
 
         self.cutoff = cutoff
-        assert self.cutoff <= max_allowed_cutoff or otf_graph
+        self.all_edges = all_edges
+        if self.cutoff is not None:
+            assert self.cutoff <= max_allowed_cutoff or otf_graph
 
         self.max_neighbors = max_neighbors
         if max_neighbors_assert:
@@ -202,7 +214,8 @@ class GemNetT(BaseModel):
         ### ------------------------------------------------------------------------------------- ###
 
         # Embedding block
-        self.atom_emb = AtomEmbedding(emb_size_atom, num_elements)
+        self.h_input = h_input
+        self.atom_emb = AtomEmbedding(emb_size_atom, num_elements) if not h_input else None
         self.edge_emb = EdgeEmbedding(
             emb_size_atom, num_radial, emb_size_edge, activation=activation
         )
@@ -442,7 +455,7 @@ class GemNetT(BaseModel):
         V_st = -distance_vec / D_st[:, None]
 
         # Mask interaction edges if required
-        if self.otf_graph or np.isclose(self.cutoff, 6):
+        if self.otf_graph or self.all_edges:
             select_cutoff = None
         else:
             select_cutoff = self.cutoff
@@ -455,6 +468,7 @@ class GemNetT(BaseModel):
             edge_vector=V_st,
             cutoff=select_cutoff,
         )
+        assert torch.all(neighbors == 25), "WTF"
 
         (
             edge_index,
@@ -494,6 +508,7 @@ class GemNetT(BaseModel):
 
     @conditional_grad(torch.enable_grad())
     def forward(self, data):
+        h_in = data.h if self.h_input else None
         pos = data.pos
         batch = data.batch
         atomic_numbers = data.atomic_numbers.long()
@@ -520,7 +535,8 @@ class GemNetT(BaseModel):
         rbf = self.radial_basis(D_st)
 
         # Embedding block
-        h = self.atom_emb(atomic_numbers)
+        h = h_in if self.h_input else self.atom_emb(atomic_numbers)
+
         # (nAtoms, emb_size_atom)
         m = self.edge_emb(h, rbf, idx_s, idx_t)  # (nEdges, emb_size_edge)
 
