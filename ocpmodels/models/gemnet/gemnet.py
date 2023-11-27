@@ -468,7 +468,6 @@ class GemNetT(BaseModel):
             edge_vector=V_st,
             cutoff=select_cutoff,
         )
-        assert torch.all(neighbors == 25), "WTF"
 
         (
             edge_index,
