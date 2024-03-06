@@ -31,6 +31,8 @@ from .utils import (
     repeat_blocks,
 )
 
+EPS = 1e-8
+
 
 @registry.register_model("gemnet_t")
 class GemNetT(BaseModel):
@@ -107,7 +109,7 @@ class GemNetT(BaseModel):
     def __init__(
         self,
         num_atoms: Optional[int],
-        bond_feat_dim: int,
+        bond_feat_dim: Optional[int],
         num_targets: int,
         num_spherical: int,
         num_radial: int,
@@ -452,7 +454,7 @@ class GemNetT(BaseModel):
         ) = self.generate_graph(data)
         # These vectors actually point in the opposite direction.
         # But we want to use col as idx_t for efficient aggregation.
-        V_st = -distance_vec / D_st[:, None]
+        V_st = -distance_vec / torch.clamp(D_st, min=EPS)[:, None]
 
         # Mask interaction edges if required
         if self.otf_graph or self.all_edges:
@@ -469,6 +471,7 @@ class GemNetT(BaseModel):
             cutoff=select_cutoff,
         )
 
+        # Removes self-loops as well
         (
             edge_index,
             cell_offsets,
@@ -506,10 +509,10 @@ class GemNetT(BaseModel):
         )
 
     @conditional_grad(torch.enable_grad())
-    def forward(self, data):
+    def forward(self, data, batch: Optional[torch.Tensor] = None):
         h_in = data.h if self.h_input else None
         pos = data.pos
-        batch = data.batch
+        batch = data.batch if batch is None else batch
         atomic_numbers = data.atomic_numbers.long()
 
         if self.regress_forces and not self.direct_forces:
@@ -569,7 +572,7 @@ class GemNetT(BaseModel):
             F_st += F
             E_t += E
 
-        nMolecules = torch.max(batch) + 1
+        nMolecules = torch.max(batch) + 1  # We can consider batching either per unitcell or per molecule.
         if self.extensive:
             E_t = scatter(
                 E_t, batch, dim=0, dim_size=nMolecules, reduce="add"
