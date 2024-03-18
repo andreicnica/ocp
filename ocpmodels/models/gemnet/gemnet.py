@@ -104,6 +104,10 @@ class GemNetT(BaseModel):
             This is useful for custom features (e.g. atom emb + time emb)
             x will have size (emb_size_atom)
 
+        all_edges: bool
+            If True, the model will use all the edges defined in data.edge_index (no cutoff).
+            It can be combined with otf_graph=True to compute the graph on the fly (based on cutoff!).
+
     """
 
     def __init__(
@@ -143,6 +147,7 @@ class GemNetT(BaseModel):
         max_neighbors_assert: bool = True,
         h_input: Optional[bool] = False,
         all_edges: Optional[bool] = True,
+        force_cutoff: Optional[bool] = False,
     ):
         super().__init__()
         self.num_targets = num_targets
@@ -151,6 +156,7 @@ class GemNetT(BaseModel):
         self.extensive = extensive
 
         self.cutoff = cutoff
+        self.force_cutoff = force_cutoff
         self.all_edges = all_edges
         if self.cutoff is not None:
             assert self.cutoff <= max_allowed_cutoff or otf_graph
@@ -456,8 +462,10 @@ class GemNetT(BaseModel):
         # But we want to use col as idx_t for efficient aggregation.
         V_st = -distance_vec / torch.clamp(D_st, min=EPS)[:, None]
 
-        # Mask interaction edges if required
-        if self.otf_graph or self.all_edges:
+        # Mask interaction edges if required.
+        #   If otf_graph is True, we already masked the edges when computing OTF edges
+        #   if all_edges is True, we add the edges from data.edge_index no matter the distance.
+        if (self.otf_graph or self.all_edges) and not self.force_cutoff:
             select_cutoff = None
         else:
             select_cutoff = self.cutoff

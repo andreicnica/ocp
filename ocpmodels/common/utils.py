@@ -555,6 +555,9 @@ def radius_graph_pbc(
     max_num_neighbors_threshold,
     enforce_max_neighbors_strictly: bool = False,
     pbc=[True, True, True],
+    remove_small_edge_th=None,  # Previous implementation had 0.0001
+    remove_same_index=True,
+    min_dist_th=0.0001,
 ):
     device = data.pos.device
     batch_size = len(data.natoms)
@@ -693,9 +696,21 @@ def radius_graph_pbc(
 
     # Remove pairs that are too far apart
     mask_within_radius = torch.le(atom_distance_sqr, radius * radius)
-    # Remove pairs with the same atoms (distance = 0.0)
-    mask_not_same = torch.gt(atom_distance_sqr, 0.0001)
-    mask = torch.logical_and(mask_within_radius, mask_not_same)
+    mask = mask_within_radius
+
+    # Remove pairs with distances smaller than th! we can have overlapping (different) atoms/nodes!
+    #   We prefer not to use this, because we want to allow different nodes to have same coord
+    if remove_small_edge_th is not None:
+        mask_dist = torch.gt(atom_distance_sqr, remove_small_edge_th)
+        mask = torch.logical_and(mask, mask_dist)
+
+    # Remove pairs between same node id if they are too close
+    #   (we could have edges between same nodes but in different cells)
+    if remove_same_index:
+        # Either
+        mask_not_same = (index1 != index2) | torch.gt(atom_distance_sqr, min_dist_th)
+        mask = torch.logical_and(mask, mask_not_same)
+
     index1 = torch.masked_select(index1, mask)
     index2 = torch.masked_select(index2, mask)
     unit_cell = torch.masked_select(
@@ -1127,3 +1142,23 @@ def scatter_det(*args, **kwargs):
         torch.use_deterministic_algorithms(mode=False)
 
     return out
+
+
+def edge_set_difference(edge1: torch.Tensor, edge0: torch.Tensor, nodes: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Method to return edges from edge1 list that are not in edge0. == set(edge1) - set(edge0).
+    Requires number of max nodes in graph.
+    Efficient when using CUDA tensors but can require a lot of memory for large graphs.
+    When using CPU tensor it is faster to use sets. 
+    
+    Args:
+        edge0: Tensor of shape (2, n)
+        edge1: Tensor of shape (2, m)
+        nodes: int Max number of nodes in graph
+    """
+    # identify pairs in edge1 that are not in edge0
+    # transform edge to scalar
+    edge0n = edge0[0] * nodes + edge0[1]
+    edge1n = edge1[0] * nodes + edge1[1]
+    mask = (edge0n[:, None] != edge1n[None, :]).all(dim=0)
+
+    return edge1[:, mask], mask
