@@ -170,6 +170,7 @@ class EquiformerV2_OC20(BaseModel):
         self.max_radius = max_radius
         self.cutoff = max_radius
         self.max_num_elements = max_num_elements
+        self.num_targets = num_targets
 
         self.num_layers = num_layers
         self.sphere_channels = sphere_channels
@@ -354,7 +355,7 @@ class EquiformerV2_OC20(BaseModel):
         self.energy_block = FeedForwardNetwork(
             self.sphere_channels,
             self.ffn_hidden_channels,
-            1,
+            num_targets,  # MG: patch from 1 to num_targets
             self.lmax_list,
             self.mmax_list,
             self.SO3_grid,
@@ -370,7 +371,7 @@ class EquiformerV2_OC20(BaseModel):
                 self.num_heads,
                 self.attn_alpha_channels,
                 self.attn_value_channels,
-                1,
+                num_targets,  # MG: patch from 1 to num_targets
                 self.lmax_list,
                 self.mmax_list,
                 self.SO3_rotation,
@@ -417,6 +418,12 @@ class EquiformerV2_OC20(BaseModel):
             data,
             enforce_max_neighbors_strictly=self.enforce_max_neighbors_strictly,
         )
+
+        # remove possible edges with edge_distance = nan
+        mask = torch.isnan(edge_distance)
+        edge_index = edge_index[:, ~mask]
+        edge_distance = edge_distance[~mask]
+        edge_distance_vec = edge_distance_vec[~mask]
 
         ###############################################################
         # Initialize data structures
@@ -503,11 +510,12 @@ class EquiformerV2_OC20(BaseModel):
         node_energy = self.energy_block(x)
         node_energy = node_energy.embedding.narrow(1, 0, 1)
         energy = torch.zeros(
-            len(data.natoms),
+            len(data.natoms), self.num_targets,  # MG patch: energy shape is (nAtoms, num_targets) instead of (nAtoms,)
             device=node_energy.device,
             dtype=node_energy.dtype,
         )
-        energy.index_add_(0, data.batch, node_energy.view(-1))
+        #energy.index_add_(0, data.batch, node_energy.view(-1))
+        energy.index_add_(0, data.batch, node_energy.squeeze(1))  # MG patch
         energy = energy / self.avg_num_nodes
 
         # Add the per-atom linear references to the energy.
@@ -540,8 +548,9 @@ class EquiformerV2_OC20(BaseModel):
             forces = self.force_block(
                 x, atomic_numbers, edge_distance, edge_index
             )
-            forces = forces.embedding.narrow(1, 1, 3)
-            forces = forces.view(-1, 3)
+            forces = forces.embedding.narrow(1, 1, 3)  # shape (nEdges, 3, num_targets)
+            # forces = forces.view(-1, 3)
+            forces = forces.transpose(1, 2)  # to (nEdges, num_targets, 3)
 
         if not self.regress_forces:
             return energy
