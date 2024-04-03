@@ -152,6 +152,7 @@ class EquiformerV2_OC20(BaseModel):
         avg_degree: Optional[float] = None,
         use_energy_lin_ref: Optional[bool] = False,
         load_energy_lin_ref: Optional[bool] = False,
+        custom_emb: Optional[bool] = False
     ):
         super().__init__()
 
@@ -216,6 +217,8 @@ class EquiformerV2_OC20(BaseModel):
 
         self.use_energy_lin_ref = use_energy_lin_ref
         self.load_energy_lin_ref = load_energy_lin_ref
+        self.custom_emb = custom_emb
+
         assert not (
             self.use_energy_lin_ref and not self.load_energy_lin_ref
         ), "You can't have use_energy_lin_ref = True and load_energy_lin_ref = False, since the model will not have the parameters for the linear references. All other combinations are fine."
@@ -456,14 +459,12 @@ class EquiformerV2_OC20(BaseModel):
         offset = 0
         # Initialize the l = 0, m = 0 coefficients for each resolution
         for i in range(self.num_resolutions):
+            atom_emb = self.sphere_embedding(atomic_numbers) if not self.custom_emb else data.h
             if self.num_resolutions == 1:
-                x.embedding[:, offset_res, :] = self.sphere_embedding(
-                    atomic_numbers
-                )
+                x.embedding[:, offset_res, :] = atom_emb
             else:
-                x.embedding[:, offset_res, :] = self.sphere_embedding(
-                    atomic_numbers
-                )[:, offset : offset + self.sphere_channels]
+                # TODO for custom embs, offset might end up solely into the time embeddings
+                x.embedding[:, offset_res, :] = atom_emb[:, offset : offset + self.sphere_channels]
             offset = offset + self.sphere_channels
             offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
 
