@@ -152,7 +152,9 @@ class EquiformerV2_OC20(BaseModel):
         avg_degree: Optional[float] = None,
         use_energy_lin_ref: Optional[bool] = False,
         load_energy_lin_ref: Optional[bool] = False,
-        custom_emb: Optional[bool] = False
+        custom_emb: Optional[bool] = False,
+        all_edges: Optional[bool] = False,  # If True we will force add all the edges from the datapoint
+        # ignoring cutoff distance. (edges from pdb & otf will still be computed)
     ):
         super().__init__()
 
@@ -219,6 +221,8 @@ class EquiformerV2_OC20(BaseModel):
         self.load_energy_lin_ref = load_energy_lin_ref
         self.custom_emb = custom_emb
 
+        self.all_edges = all_edges
+        
         assert not (
             self.use_energy_lin_ref and not self.load_energy_lin_ref
         ), "You can't have use_energy_lin_ref = True and load_energy_lin_ref = False, since the model will not have the parameters for the linear references. All other combinations are fine."
