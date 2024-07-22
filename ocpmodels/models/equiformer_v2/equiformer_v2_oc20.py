@@ -426,8 +426,8 @@ class EquiformerV2_OC20(BaseModel):
             enforce_max_neighbors_strictly=self.enforce_max_neighbors_strictly,
         )
 
-        # remove possible edges with edge_distance = nan
-        mask = torch.isnan(edge_distance)
+        # remove possible edges with edge_distance = nan or very small edge_distance_vec 
+        mask = torch.isnan(edge_distance) | (torch.min(edge_distance_vec.abs(), dim=1)[0] < 1e-5)
         edge_index = edge_index[:, ~mask]
         edge_distance = edge_distance[~mask]
         edge_distance_vec = edge_distance_vec[~mask]
